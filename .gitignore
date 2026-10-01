@@ -1,0 +1,26 @@
+# Dependencias de Node.js (se regeneran con npm install)
+node_modules/
+
+# Archivos de compilación de TypeScript (código generado autómaticamente)
+dist/
+build/
+out/
+
+# Variables de entorno y credenciales (¡CRÍTICO para tu seguridad!)
+.env
+.env.*
+!.env.example
+
+# Archivos de registro y errores (Logs)
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Archivos temporales del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Configuraciones locales del editor de código (ej. Visual Studio Code)
+.vscode/
+.idea/
+
