@@ -1,42 +1,146 @@
 /**
- * CAPA DE DOMINIO: Entidad Cobranza
- * Representa un pago realizado sobre un Pedido existente.
+ * CAPA DE DOMINIO: Entidad Cobranza (Encapsulamiento estricto)
+ * Mapeo exacto de la tabla en JADE.sql:
+ * CREATE TABLE Cobranza (
+ *     Codigo INT IDENTITY(1,1) PRIMARY KEY,
+ *     CodigoPedido INT NOT NULL,
+ *     ID_Usuario INT NOT NULL,
+ *     Fecha DATETIME DEFAULT GETDATE(),
+ *     Monto DECIMAL(10,2) NOT NULL,
+ *     TipoPago VARCHAR(20) NOT NULL, -- Ej: 'Efectivo', 'Transacción'
+ *     FOREIGN KEY (CodigoPedido) REFERENCES Pedido(Codigo),
+ *     FOREIGN KEY (ID_Usuario) REFERENCES Usuario(ID)
+ * );
  */
 
-/**
- * 'type' (Union Type de TypeScript):
- * En lugar de aceptar cualquier 'string' en el método de pago (lo que permitiría 
- * errores tipográficos como "efetivo" o "yape"), restringimos estrictamente 
- * las opciones válidas en tiempo de compilación.
- */
-export type MetodoPagoPermitido = 'EFECTIVO' | 'TRANSFERENCIA' | 'YAPE_PLIN' | 'TARJETA';
+export const TIPOS_PAGO_PERMITIDOS = ['Efectivo', 'Transacción'] as const;
+export type TipoPagoPermitido = (typeof TIPOS_PAGO_PERMITIDOS)[number];
 
 export class Cobranza {
-  constructor(
-    public readonly idPedido: number,
-    public readonly monto: number,
-    public readonly metodoPago: MetodoPagoPermitido,
-    public readonly idUsuarioCobrador: number,
-    public readonly fechaCobro: Date = new Date(),
-    public readonly idCobranza?: number // El signo '?' indica que es opcional (SQL Server lo genera al insertar)
-  ) {
-    this.validarCobranza();
-  }
+  private readonly _codigoPedido: number;
+  private readonly _idUsuario: number;
+  private _monto!: number;
+  private _tipoPago!: TipoPagoPermitido;
+  private readonly _fecha: Date;
+  private readonly _codigo?: number;
 
   /**
-   * Encapsulamos las invariantes de negocio de una cobranza:
-   * - No existen cobros de monto cero o negativo en una transacción real.
-   * - Todo cobro debe apuntar a un ID de pedido válido.
+   * @security
+   * ⚠️ ADVERTENCIA DE SEGURIDAD (NOTA ACADÉMICA):
+   * Los mensajes de error en esta entidad exponen explícitamente el nombre del script (JADE.sql),
+   * tipos de datos (VARCHAR, DECIMAL) y semillas de incremento (IDENTITY(5000,1), IDENTITY(1110,15)).
+   * Se mantiene así de forma intencional con fines demostrativos y de trazabilidad para este proyecto
+   * estudiantil en GitHub. En producción, debe separarse el log técnico del mensaje HTTP al cliente
+   * para evitar Information Disclosure (OWASP).
    */
-  public validarCobranza(): void {
-    if (this.idPedido <= 0) {
-      throw new Error('Error de Dominio: La cobranza debe estar asociada a un ID de pedido válido.');
-    }
+  constructor(
+    codigoPedido: number,
+    idUsuario: number,
+    monto: number,
+    tipoPago: TipoPagoPermitido,
+    fecha: Date = new Date(),
+    codigo?: number
+  ) {
+    this.validarCodigoPedido(codigoPedido);
+    this.validarIdUsuario(idUsuario);
+    this.cambiarMonto(monto);
+    this.cambiarTipoPago(tipoPago);
+    this.validarCodigo(codigo);
 
-    if (this.monto <= 0) {
+    this._codigoPedido = codigoPedido;
+    this._idUsuario = idUsuario;
+    this._fecha = fecha;
+    this._codigo = codigo;
+  }
+
+  // =========================================================================
+  // GETTERS PÚBLICOS (Solo lectura desde capas externas)
+  // =========================================================================
+  public get codigo(): number | undefined {
+    return this._codigo;
+  }
+
+  public get codigoPedido(): number {
+    return this._codigoPedido;
+  }
+
+  public get idUsuario(): number {
+    return this._idUsuario;
+  }
+
+  public get monto(): number {
+    return this._monto;
+  }
+
+  public get tipoPago(): TipoPagoPermitido {
+    return this._tipoPago;
+  }
+
+  public get fecha(): Date {
+    return new Date(this._fecha.getTime());
+  }
+
+  // =========================================================================
+  // MÉTODOS INTERNOS DE MUTACIÓN CONTROLADA Y VALIDACIÓN DE INTEGRIDAD
+  // =========================================================================
+  public cambiarMonto(nuevoMonto: number): void {
+    if (typeof nuevoMonto !== 'number' || Number.isNaN(nuevoMonto) || nuevoMonto <= 0) {
       throw new Error(
-        `Error de Dominio: El monto a cobrar debe ser mayor a 0. Monto intentado: ${this.monto}`
+        `Error de Dominio: El Monto de la cobranza debe ser mayor a 0 según DECIMAL(10,2) en JADE.sql. Recibido: ${nuevoMonto}`
       );
     }
+
+    if (nuevoMonto > 99999999.99) {
+      throw new Error(
+        'Error de Dominio: El Monto excede la capacidad máxima de DECIMAL(10,2) en JADE.sql.'
+      );
+    }
+
+    this._monto = Number(nuevoMonto.toFixed(2));
+  }
+
+  public cambiarTipoPago(nuevoTipoPago: TipoPagoPermitido): void {
+    if (!nuevoTipoPago || nuevoTipoPago.length > 20 || !TIPOS_PAGO_PERMITIDOS.includes(nuevoTipoPago)) {
+      throw new Error(
+        `Error de Dominio: El TipoPago '${nuevoTipoPago}' es inválido o supera VARCHAR(20) en JADE.sql. Permitidos: ${TIPOS_PAGO_PERMITIDOS.join(', ')}.`
+      );
+    }
+
+    this._tipoPago = nuevoTipoPago;
+  }
+
+  private validarCodigoPedido(codigoPedido: number): void {
+    if (!Number.isInteger(codigoPedido) || codigoPedido < 5000) {
+      throw new Error(
+        `Error de Dominio: CodigoPedido (${codigoPedido}) inválido. En JADE.sql los pedidos inician en IDENTITY(5000,1).`
+      );
+    }
+  }
+
+  private validarIdUsuario(idUsuario: number): void {
+    if (!Number.isInteger(idUsuario) || idUsuario < 1110 || (idUsuario - 1110) % 15 !== 0) {
+      throw new Error(
+        `Error de Dominio: ID_Usuario (${idUsuario}) inválido. En JADE.sql los usuarios inician en IDENTITY(1110,15) y deben ser múltiplos de 15 a partir de 1110.`
+      );
+    }
+  }
+
+  private validarCodigo(codigo?: number): void {
+    if (codigo !== undefined && (!Number.isInteger(codigo) || codigo < 1)) {
+      throw new Error(
+        `Error de Dominio: El Codigo de cobranza (${codigo}) es inválido. En JADE.sql inicia en IDENTITY(1,1).`
+      );
+    }
+  }
+
+  public toJSON() {
+    return {
+      codigo: this._codigo,
+      codigoPedido: this._codigoPedido,
+      idUsuario: this._idUsuario,
+      fecha: this._fecha,
+      monto: this._monto,
+      tipoPago: this._tipoPago
+    };
   }
 }
