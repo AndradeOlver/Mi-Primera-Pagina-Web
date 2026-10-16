@@ -1,13 +1,15 @@
 /**
  * CAPA DE DOMINIO: Entidad Cobranza (Encapsulamiento estricto)
- * Mapeo exacto de la tabla en JADE.sql:
+ * Mapeo exacto de la tabla actualizada en JADE.sql:
  * CREATE TABLE Cobranza (
  *     Codigo INT IDENTITY(1,1) PRIMARY KEY,
- *     CodigoPedido INT NOT NULL,
+ *     CodigoCliente INT NOT NULL, -- Cliente que realiza el abono o pago
+ *     CodigoPedido INT NULL,      -- NULL si es abono general a cuenta; con valor si paga 1 pedido al contado
  *     ID_Usuario INT NOT NULL,
  *     Fecha DATETIME DEFAULT GETDATE(),
  *     Monto DECIMAL(10,2) NOT NULL,
  *     TipoPago VARCHAR(20) NOT NULL, -- Ej: 'Efectivo', 'Transacción'
+ *     FOREIGN KEY (CodigoCliente) REFERENCES Cliente(Codigo),
  *     FOREIGN KEY (CodigoPedido) REFERENCES Pedido(Codigo),
  *     FOREIGN KEY (ID_Usuario) REFERENCES Usuario(ID)
  * );
@@ -17,7 +19,8 @@ export const TIPOS_PAGO_PERMITIDOS = ['Efectivo', 'Transacción'] as const;
 export type TipoPagoPermitido = (typeof TIPOS_PAGO_PERMITIDOS)[number];
 
 export class Cobranza {
-  private readonly _codigoPedido: number;
+  private readonly _codigoCliente: number;
+  private readonly _codigoPedido: number | null;
   private readonly _idUsuario: number;
   private _monto!: number;
   private _tipoPago!: TipoPagoPermitido;
@@ -28,25 +31,28 @@ export class Cobranza {
    * @security
    * ⚠️ ADVERTENCIA DE SEGURIDAD (NOTA ACADÉMICA):
    * Los mensajes de error en esta entidad exponen explícitamente el nombre del script (JADE.sql),
-   * tipos de datos (VARCHAR, DECIMAL) y semillas de incremento (IDENTITY(5000,1), IDENTITY(1110,15)).
+   * tipos de datos (VARCHAR, DECIMAL) y semillas de incremento (IDENTITY(2220,15), IDENTITY(5000,1), IDENTITY(1110,15)).
    * Se mantiene así de forma intencional con fines demostrativos y de trazabilidad para este proyecto
    * estudiantil en GitHub. En producción, debe separarse el log técnico del mensaje HTTP al cliente
    * para evitar Information Disclosure (OWASP).
    */
   constructor(
-    codigoPedido: number,
+    codigoCliente: number,
     idUsuario: number,
     monto: number,
     tipoPago: TipoPagoPermitido,
+    codigoPedido: number | null = null,
     fecha: Date = new Date(),
     codigo?: number
   ) {
+    this.validarCodigoCliente(codigoCliente);
     this.validarCodigoPedido(codigoPedido);
     this.validarIdUsuario(idUsuario);
     this.cambiarMonto(monto);
     this.cambiarTipoPago(tipoPago);
     this.validarCodigo(codigo);
 
+    this._codigoCliente = codigoCliente;
     this._codigoPedido = codigoPedido;
     this._idUsuario = idUsuario;
     this._fecha = fecha;
@@ -60,7 +66,11 @@ export class Cobranza {
     return this._codigo;
   }
 
-  public get codigoPedido(): number {
+  public get codigoCliente(): number {
+    return this._codigoCliente;
+  }
+
+  public get codigoPedido(): number | null {
     return this._codigoPedido;
   }
 
@@ -109,10 +119,22 @@ export class Cobranza {
     this._tipoPago = nuevoTipoPago;
   }
 
-  private validarCodigoPedido(codigoPedido: number): void {
+  private validarCodigoCliente(codigoCliente: number): void {
+    if (!Number.isInteger(codigoCliente) || codigoCliente < 2220 || (codigoCliente - 2220) % 15 !== 0) {
+      throw new Error(
+        `Error de Dominio: CodigoCliente (${codigoCliente}) inválido en Cobranza. En JADE.sql los clientes inician en IDENTITY(2220,15) y deben ser múltiplos de 15 a partir de 2220.`
+      );
+    }
+  }
+
+  private validarCodigoPedido(codigoPedido: number | null): void {
+    if (codigoPedido === null) {
+      return; // Es válido cuando el cliente hace un abono general a su cuenta a crédito
+    }
+
     if (!Number.isInteger(codigoPedido) || codigoPedido < 5000) {
       throw new Error(
-        `Error de Dominio: CodigoPedido (${codigoPedido}) inválido. En JADE.sql los pedidos inician en IDENTITY(5000,1).`
+        `Error de Dominio: CodigoPedido (${codigoPedido}) inválido. En JADE.sql los pedidos inician en IDENTITY(5000,1) o debe ser NULL para abonos generales.`
       );
     }
   }
@@ -136,6 +158,7 @@ export class Cobranza {
   public toJSON() {
     return {
       codigo: this._codigo,
+      codigoCliente: this._codigoCliente,
       codigoPedido: this._codigoPedido,
       idUsuario: this._idUsuario,
       fecha: this._fecha,
